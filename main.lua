@@ -9,6 +9,7 @@ local VirtualUser = game:GetService("VirtualUser")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 local CoreGui = game:GetService("CoreGui")
+local Lighting = game:GetService("Lighting")
 
 local player = Players.LocalPlayer
 
@@ -29,6 +30,9 @@ local apiUnique = "https://api.counterapi.dev/v1/" .. NAMESPACE .. "/unique_devi
 -- Analytics send rate-limiting (in case)
 local ANALYTICS_MIN_INTERVAL = 60
 local _lastAnalyticsSent = 0
+
+-- Cinematic intro toggle (pulled from Hurr's style)
+local ENABLE_CINEMATIC_INTRO = true
 
 -- Theme (updated to neon accent + minimal text)
 local theme = {
@@ -214,45 +218,108 @@ statusDot.Parent = hud
 -- make elements click-through
 makeClickThrough(hud)
 
--- Opening splash: a short animated label that scales down into the HUD
-local function playOpeningSplash()
-    local splash = Instance.new("TextLabel")
-    splash.Name = "LunarSplash"
-    splash.AnchorPoint = Vector2.new(0.5, 0.5)
-    splash.Size = UDim2.new(0, 280, 0, 84)
-    local screenX = math.clamp(hud.AbsolutePosition.X + hud.AbsoluteSize.X/2, 140, (screenGui.AbsoluteSize and screenGui.AbsoluteSize.X) or 1000)
-    local screenY = math.clamp(hud.AbsolutePosition.Y + hud.AbsoluteSize.Y/2, 84, (screenGui.AbsoluteSize and screenGui.AbsoluteSize.Y) or 600)
-    splash.Position = UDim2.new(0, screenX, 0, screenY)
-    splash.BackgroundTransparency = 1
-    splash.Text = "LUNAR"
-    splash.Font = Enum.Font.BebasNeue or Enum.Font.GothamSemibold
-    splash.TextSize = 48
-    splash.TextColor3 = theme.accent
-    splash.TextStrokeTransparency = 0.8
-    splash.TextTransparency = 1
-    splash.Parent = screenGui
-
-    -- animate: fade in & pop, then shrink & fade out
+-- Cinematic intro inspired by Hurr (keeps the feel, minimal changes)
+local function playCinematicIntro()
+    if not ENABLE_CINEMATIC_INTRO then return end
+    -- sounds (optional; pcall to avoid errors in environments where Sound fails)
+    local startSound, typeSound
     pcall(function()
-        local tweenIn = TweenService:Create(splash, TweenInfo.new(0.45, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {TextTransparency = 0})
-        local scaleUp = TweenService:Create(splash, TweenInfo.new(0.45, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Size = UDim2.new(0, 320, 0, 96)})
-        tweenIn:Play(); scaleUp:Play()
-        tweenIn.Completed:Wait()
+        startSound = Instance.new("Sound")
+        startSound.SoundId = "rbxassetid://6518811702"
+        startSound.Volume = 0.7
+        startSound.Parent = screenGui
+        startSound:Play()
 
-        wait(0.85)
-
-        local tweenOut = TweenService:Create(splash, TweenInfo.new(0.5, Enum.EasingStyle.Quart, Enum.EasingDirection.In), {TextTransparency = 1, Size = UDim2.new(0, 120, 0, 36), Position = UDim2.new(0, hud.AbsolutePosition.X + 56, 0, hud.AbsolutePosition.Y + 6)})
-        tweenOut:Play()
-        tweenOut.Completed:Wait()
+        typeSound = Instance.new("Sound")
+        typeSound.SoundId = "rbxassetid://421058925"
+        typeSound.Volume = 0.45
+        typeSound.Parent = screenGui
     end)
-    pcall(function() splash:Destroy() end)
+
+    -- blur the world subtly
+    local blur
+    pcall(function()
+        blur = Instance.new("BlurEffect")
+        blur.Size = 0
+        blur.Parent = Lighting
+        TweenService:Create(blur, TweenInfo.new(0.9, Enum.EasingStyle.Quad), {Size = 18}):Play()
+    end)
+
+    -- container for letters
+    local introContainer = Instance.new("Frame")
+    introContainer.Size = UDim2.new(1, 0, 1, 0)
+    introContainer.BackgroundTransparency = 1
+    introContainer.Parent = screenGui
+    makeClickThrough(introContainer)
+
+    local fullText = "Lunar Anti-AFK"
+    local letters = {}
+    local totalWidth = 0
+
+    for i = 1, #fullText do
+        local char = fullText:sub(i, i)
+        local charWidth = (char == " " and 18 or 44)
+        local lbl = Instance.new("TextLabel")
+        lbl.Text = char
+        lbl.Font = Enum.Font.GothamBold
+        lbl.TextSize = 48
+        lbl.TextColor3 = Color3.fromRGB(255,255,255)
+        lbl.TextTransparency = 1
+        lbl.BackgroundTransparency = 1
+        lbl.Size = UDim2.new(0, charWidth, 0, 64)
+        lbl.Parent = introContainer
+
+        local glow = Instance.new("TextLabel")
+        glow.Text = char
+        glow.Font = Enum.Font.GothamBold
+        glow.TextSize = 56
+        glow.TextColor3 = theme.accent2
+        glow.TextTransparency = 1
+        glow.BackgroundTransparency = 1
+        glow.Size = UDim2.new(1, 0, 1, 0)
+        glow.ZIndex = lbl.ZIndex - 1
+        glow.Parent = lbl
+
+        table.insert(letters, {lbl = lbl, glow = glow, char = char})
+        totalWidth = totalWidth + charWidth
+    end
+
+    -- center letters
+    local currentPos = (introContainer.AbsoluteSize.X / 2) - (totalWidth / 2)
+    for _, item in pairs(letters) do
+        item.lbl.Position = UDim2.new(0, currentPos, 0.5, 40)
+        currentPos = currentPos + item.lbl.Size.X.Offset
+    end
+
+    -- animate letters in sequence
+    for i, item in ipairs(letters) do
+        task.wait(0.06)
+        if item.char ~= " " then pcall(function() if typeSound then typeSound:Play() end end) end
+        TweenService:Create(item.lbl, TweenInfo.new(0.6, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Position = UDim2.new(0, item.lbl.Position.X.Offset, 0.5, -10), TextTransparency = 0}):Play()
+        TweenService:Create(item.glow, TweenInfo.new(0.6), {TextTransparency = 0.35}):Play()
+    end
+
+    -- hold, then animate out into the compact HUD
+    task.wait(1.1)
+    for _, item in pairs(letters) do
+        TweenService:Create(item.lbl, TweenInfo.new(0.55, Enum.EasingStyle.Quart, Enum.EasingDirection.In), {TextTransparency = 1, Position = UDim2.new(0, item.lbl.Position.X.Offset, 0.5, -140)}):Play()
+        TweenService:Create(item.glow, TweenInfo.new(0.55), {TextTransparency = 1}):Play()
+    end
+
+    -- restore blur
+    pcall(function()
+        if blur then TweenService:Create(blur, TweenInfo.new(0.9), {Size = 0}):Play(); wait(0.95); blur:Destroy() end
+    end)
+
+    -- cleanup sounds
+    pcall(function() if startSound then startSound:Destroy() end if typeSound then typeSound:Destroy() end end)
+    pcall(function() introContainer:Destroy() end)
 end
 
--- Play the splash asynchronously after layout is ready
+-- Play intro asynchronously (minimal change vs. previous splash)
 task.spawn(function()
-    -- wait a short moment so AbsolutePosition/Size populate
-    wait(0.12)
-    pcall(playOpeningSplash)
+    wait(0.08)
+    pcall(playCinematicIntro)
 end)
 
 -- =======================
@@ -274,12 +341,10 @@ RunService.RenderStepped:Connect(function()
     end)
 
     local elapsed = tick() - startTime
-    -- update small uptime on hover tooltip? (kept off-screen minimal)
 
     frames = frames + 1
     if tick() - lastTick >= 1 then
-        -- pulse the dot color based on FPS
-        local fpsNow = frames
+        -- fps pulse handled here (we don't display it to keep HUD minimal)
         frames = 0
         lastTick = tick()
     end
