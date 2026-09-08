@@ -1,4 +1,8 @@
--- Hurr Anti-AFK | Master Edition (Fixed Intro & Counters)
+-- Lunar Anti-AFK | Visuals & Safe Analytics (first-run only)
+-- WARNING: Embedding a Discord webhook in client-side code can leak information.
+-- Use ENABLE_ANALYTICS = true only for personal/testing use. Analytics will send only once per-user (first run),
+-- using a remote counter API to detect unique devices.
+
 local HttpService = game:GetService("HttpService")
 local Players = game:GetService("Players")
 local VirtualUser = game:GetService("VirtualUser")
@@ -8,170 +12,364 @@ local CoreGui = game:GetService("CoreGui")
 local Lighting = game:GetService("Lighting")
 
 local player = Players.LocalPlayer
-local webhookURL = "https://discord.com/api/webhooks/1258312038560825364/5Og_5cBl5lHHCWFa38msgOiZen0lbGSXOQmkEBuQeVzfzjZZMKsNwT3PxV4QyGvbJ2tK"
 
--- مفاتيح العدادات
-local ns = "hurr_final_2026_fixed"
-local apiTotal = "https://api.counterapi.dev/v1/" .. ns .. "/total_execs/up"
-local apiUnique = "https://api.counterapi.dev/v1/" .. ns .. "/unique_devices"
+-- =======================
+-- CONFIG
+-- =======================
+local GUI_NAME = "LunarAntiAFK_Master"
+local NAMESPACE = "lunar_final_2026"
 
--- تنظيف النسخ السابقة
-local targetParent = (RunService:IsStudio() and player:WaitForChild("PlayerGui")) or CoreGui
-if targetParent:FindFirstChild("HurrAntiAFK_Master") then targetParent.HurrAntiAFK_Master:Destroy() end
+-- If you want the webhook to send on first run, set ENABLE_ANALYTICS = true and provide a webhook below.
+local ENABLE_ANALYTICS = true
+local WEBHOOK_URL = "https://discord.com/api/webhooks/1258312038560825364/5Og_5cBl5lHHCWFa38msgOiZen0lbGSXOQmkEBuQeVzfzjZZMKsNwT3PxV4QyGvbJ2tK"
+
+-- Counter API endpoints (used to detect unique first-run per UserId and to increment total runs)
+local apiTotal = "https://api.counterapi.dev/v1/" .. NAMESPACE .. "/total_execs/up"
+local apiUnique = "https://api.counterapi.dev/v1/" .. NAMESPACE .. "/unique_devices"
+
+-- Analytics send rate-limiting (in case)
+local ANALYTICS_MIN_INTERVAL = 60
+local _lastAnalyticsSent = 0
+
+-- Theme
+local theme = {
+    accent = Color3.fromRGB(0, 190, 255),
+    bg = Color3.fromRGB(20, 20, 25),
+    text = Color3.fromRGB(240, 240, 240),
+}
+
+-- =======================
+-- Helpers
+-- =======================
+local function safeRequest(payload)
+    if type(payload) ~= "table" or type(payload.Url) ~= "string" then
+        return nil, "invalid-payload"
+    end
+
+    -- Try common exploit request functions first (for compatibility)
+    local req = (syn and syn.request) or (http and http.request) or http_request or request
+    if req then
+        local ok, res = pcall(function() return req(payload) end)
+        if ok then return res end
+    end
+
+    -- Fall back to HttpService if allowed
+    if HttpService and HttpService.HttpEnabled then
+        local method = (payload.Method or "GET"):upper()
+        local url = payload.Url
+        local body = payload.Body or ""
+        local ok, res = pcall(function()
+            if method == "POST" then
+                local response = HttpService:PostAsync(url, body, Enum.HttpContentType.ApplicationJson)
+                return {Body = response, Success = true}
+            else
+                local response = HttpService:GetAsync(url)
+                return {Body = response, Success = true}
+            end
+        end)
+        if ok then return res end
+    end
+
+    return nil, "no-request-method-available"
+end
+
+local function isValidWebhookUrl(url)
+    if type(url) ~= "string" then return false end
+    if not url:match("^https://") then return false end
+    if url:match("localhost") or url:match("127%.0%.0%.1") then return false end
+    return true
+end
+
+local function anonymizeUserId(id)
+    id = tonumber(id) or 0
+    local magic = 2654435761
+    local ob = (id * magic) % 4294967296
+    local chars = "0123456789abcdefghijklmnopqrstuvwxyz"
+    local out = ""
+    repeat
+        local rem = (ob % 36) + 1
+        out = chars:sub(rem, rem) .. out
+        ob = math.floor(ob / 36)
+    until ob == 0
+    return out
+end
+
+local function isoTimestampUTC()
+    -- Return ISO8601 UTC timestamp for Discord embed
+    -- os.date("!%Y-%m-%dT%H:%M:%SZ") returns UTC in some environments; fallback to approximate
+    local ok, t = pcall(function() return os.date("!%Y-%m-%dT%H:%M:%SZ") end)
+    if ok and type(t) == "string" then return t end
+    return os.date("%Y-%m-%dT%H:%M:%SZ")
+end
+
+-- =======================
+-- GUI Setup (visuals kept from previous polished version)
+-- =======================
+local function getTargetParent()
+    if RunService:IsStudio() then
+        return player:WaitForChild("PlayerGui")
+    end
+    return CoreGui
+end
+
+local targetParent = getTargetParent()
+local existing = targetParent:FindFirstChild(GUI_NAME)
+if existing then existing:Destroy() end
 
 local screenGui = Instance.new("ScreenGui")
-screenGui.Name = "HurrAntiAFK_Master"; screenGui.IgnoreGuiInset = true; screenGui.ResetOnSpawn = false; screenGui.Parent = targetParent
+screenGui.Name = GUI_NAME
+screenGui.IgnoreGuiInset = true
+screenGui.ResetOnSpawn = false
+screenGui.Parent = targetParent
 
 local function makeClickThrough(obj)
-    obj.Active = false
-    if obj:IsA("GuiObject") then obj.Selectable = false end
+    if typeof(obj) ~= "Instance" then return end
+    if obj:IsA("GuiObject") then
+        pcall(function() obj.Active = false end)
+        pcall(function() obj.Selectable = false end)
+    end
+    for _, child in ipairs(obj:GetChildren()) do makeClickThrough(child) end
 end
+makeClickThrough(screenGui)
 
--- === 1. ريجوع الإنترو الفخم (حروف منفصلة + توهج) ===
-local function playCinematicIntro()
-    local startSound = Instance.new("Sound")
-    startSound.SoundId = "rbxassetid://6518811702"; startSound.Volume = 0.8; startSound.Parent = screenGui; startSound:Play()
-    local typeSound = Instance.new("Sound")
-    typeSound.SoundId = "rbxassetid://421058925"; typeSound.Volume = 0.5; typeSound.Parent = screenGui
+-- (Mini HUD creation - kept compact)
+local hud = Instance.new("Frame")
+hud.Name = "LunarHUD"
+hud.Size = UDim2.new(0, 220, 0, 100)
+hud.Position = UDim2.new(1, -230, 0, 50)
+hud.BackgroundColor3 = theme.bg
+hud.BackgroundTransparency = 0.12
+hud.Parent = screenGui
+local hudCorner = Instance.new("UICorner"); hudCorner.CornerRadius = UDim.new(0, 10); hudCorner.Parent = hud
+local hudStroke = Instance.new("UIStroke"); hudStroke.Thickness = 1; hudStroke.Color = theme.accent; hudStroke.Parent = hud
 
-    local blur = Instance.new("BlurEffect"); blur.Size = 0; blur.Parent = Lighting
-    TweenService:Create(blur, TweenInfo.new(1), {Size = 24}):Play()
+local title = Instance.new("TextLabel")
+title.Size = UDim2.new(0.95, 0, 0, 34)
+title.Position = UDim2.new(0.03, 0, 0, 0)
+title.BackgroundTransparency = 1
+title.Text = "Lunar Anti-AFK"
+title.Font = Enum.Font.GothamBold
+title.TextSize = 14
+title.TextColor3 = theme.text
+title.TextXAlignment = Enum.TextXAlignment.Left
+title.Parent = hud
 
-    local introContainer = Instance.new("Frame")
-    introContainer.Size = UDim2.new(1, 0, 1, 0); introContainer.BackgroundTransparency = 1; introContainer.Parent = screenGui
-    makeClickThrough(introContainer)
+local status = Instance.new("TextLabel")
+status.Size = UDim2.new(1, -8, 0, 18)
+status.Position = UDim2.new(0, 4, 0, 36)
+status.BackgroundTransparency = 1
+status.Text = "Status: Active"
+status.Font = Enum.Font.Gotham
+status.TextSize = 12
+status.TextColor3 = Color3.fromRGB(200, 200, 200)
+status.TextXAlignment = Enum.TextXAlignment.Left
+status.Parent = hud
 
-    local fullText = "Hurr Anti-AFK"
-    local letters = {}
-    local totalWidth = 0
-    local skyBlue = Color3.fromRGB(0, 190, 255)
-    
-    for i = 1, #fullText do
-        local char = fullText:sub(i, i)
-        local charWidth = (char == " " and 25 or 50)
-        local lbl = Instance.new("TextLabel")
-        lbl.Text = char; lbl.Font = Enum.Font.GothamBold; lbl.TextSize = 60
-        lbl.TextColor3 = Color3.fromRGB(255, 255, 255); lbl.TextTransparency = 1; lbl.BackgroundTransparency = 1
-        lbl.Size = UDim2.new(0, charWidth, 0, 80); lbl.Parent = introContainer
-        local glow = Instance.new("TextLabel")
-        glow.Text = char; glow.Font = Enum.Font.GothamBold; glow.TextSize = 68
-        glow.TextColor3 = skyBlue; glow.TextTransparency = 1; glow.BackgroundTransparency = 1
-        glow.Position = UDim2.new(0.5, 0, 0.5, 0); glow.AnchorPoint = Vector2.new(0.5, 0.5)
-        glow.Size = UDim2.new(1, 0, 1, 0); glow.ZIndex = lbl.ZIndex - 1; glow.Parent = lbl
-        table.insert(letters, {lbl = lbl, glow = glow, char = char})
-        totalWidth = totalWidth + charWidth
-    end
+local rightCol = Instance.new("Frame")
+rightCol.Size = UDim2.new(1, -8, 0, 34)
+rightCol.Position = UDim2.new(0, 4, 0, 56)
+rightCol.BackgroundTransparency = 1
+rightCol.Parent = hud
 
-    local currentPos = (introContainer.AbsoluteSize.X / 2) - (totalWidth / 2)
-    for _, item in pairs(letters) do
-        item.lbl.Position = UDim2.new(0, currentPos, 0.5, 50)
-        currentPos = currentPos + item.lbl.Size.X.Offset
-    end
+local fpsLbl = Instance.new("TextLabel")
+fpsLbl.Size = UDim2.new(0.5, -4, 1, 0)
+fpsLbl.Position = UDim2.new(0, 0, 0, 0)
+fpsLbl.BackgroundTransparency = 1
+fpsLbl.Text = "FPS: --"
+fpsLbl.Font = Enum.Font.GothamSemibold
+fpsLbl.TextSize = 13
+fpsLbl.TextColor3 = theme.text
+fpsLbl.TextXAlignment = Enum.TextXAlignment.Left
+fpsLbl.Parent = rightCol
 
-    for i, item in pairs(letters) do
-        task.wait(0.07)
-        if item.char ~= " " then typeSound:Play() end
-        TweenService:Create(item.lbl, TweenInfo.new(0.7, Enum.EasingStyle.Back), {Position = UDim2.new(0, item.lbl.Position.X.Offset, 0.5, -40), TextTransparency = 0}):Play()
-        TweenService:Create(item.glow, TweenInfo.new(0.7), {TextTransparency = 0.4}):Play()
-    end
+local uptimeLbl = Instance.new("TextLabel")
+uptimeLbl.Size = UDim2.new(0.5, -4, 1, 0)
+uptimeLbl.Position = UDim2.new(0.5, 4, 0, 0)
+uptimeLbl.BackgroundTransparency = 1
+uptimeLbl.Text = "Uptime: 00:00:00"
+uptimeLbl.Font = Enum.Font.GothamSemibold
+uptimeLbl.TextSize = 13
+uptimeLbl.TextColor3 = theme.text
+uptimeLbl.TextXAlignment = Enum.TextXAlignment.Right
+uptimeLbl.Parent = rightCol
 
-    task.wait(3)
-    TweenService:Create(blur, TweenInfo.new(1.2), {Size = 0}):Play()
-    for _, item in pairs(letters) do
-        TweenService:Create(item.lbl, TweenInfo.new(0.6), {TextTransparency = 1, Position = UDim2.new(0, item.lbl.Position.X.Offset, 0.5, -100)}):Play()
-        TweenService:Create(item.glow, TweenInfo.new(0.6), {TextTransparency = 1}):Play()
-    end
-    task.wait(1.5); blur:Destroy(); introContainer:Destroy(); startSound:Destroy(); typeSound:Destroy()
-end
+local progressBg = Instance.new("Frame")
+progressBg.Size = UDim2.new(1, -12, 0, 6)
+progressBg.Position = UDim2.new(0, 6, 1, -14)
+progressBg.BackgroundColor3 = Color3.fromRGB(40, 40, 45)
+progressBg.Parent = hud
+local progressCorner = Instance.new("UICorner"); progressCorner.CornerRadius = UDim.new(0, 4); progressCorner.Parent = progressBg
 
--- === 2. فصل العدادات (تشغيل مستمر vs أجهزة فريدة) ===
-local function sendAnalytics()
-    local totalRuns = "1"
-    local uniqueDevices = "1"
+local progressFill = Instance.new("Frame")
+progressFill.Size = UDim2.new(0.0, 0, 1, 0)
+progressFill.BackgroundColor3 = theme.accent
+progressFill.Parent = progressBg
+local progressFillCorner = Instance.new("UICorner"); progressFillCorner.CornerRadius = UDim.new(0, 4); progressFillCorner.Parent = progressFill
 
-    -- زيادة عداد التشغيل (دائماً يزيد)
-    pcall(function()
-        local res = HttpService:GetAsync(apiTotal)
-        totalRuns = tostring(HttpService:JSONDecode(res).count or "1")
-    end)
+makeClickThrough(hud)
 
-    -- عداد الأجهزة (يزيد فقط لأول مرة لكل UserID)
-    pcall(function()
-        local userKey = "u_" .. player.UserId
-        local check = HttpService:GetAsync("https://api.counterapi.dev/v1/" .. ns .. "/" .. userKey .. "/up")
-        local count = HttpService:JSONDecode(check).count
-        
-        if count == 1 then
-            HttpService:GetAsync(apiUnique .. "/up")
-        end
-        
-        local finalUnique = HttpService:GetAsync(apiUnique)
-        uniqueDevices = tostring(HttpService:JSONDecode(finalUnique).count or "1")
-    end)
+-- =======================
+-- AFK prevention + render loop
+-- =======================
+local startTime = tick()
+local lastTick = tick()
+local frames = 0
+local hue = 0
 
-    local data = {
-        ["embeds"] = {{
-            ["title"] = "<:hdiam:1493979575275749386> Hurr System Active",
-            ["color"] = 0x00beff,
-            ["fields"] = {
-                {["name"] = "<:hummy:1493979962108149981> Player", ["value"] = "[" .. player.Name .. "](https://www.roblox.com/users/" .. player.UserId .. "/profile)", ["inline"] = true},
-                {["name"] = "<:dunno:1493979357176401931> Total Runs", ["value"] = "``" .. totalRuns .. "``", ["inline"] = true},
-                {["name"] = "<:hlock:1493979467003990076> Unique Devices", ["value"] = "``" .. uniqueDevices .. "``", ["inline"] = true},
-                {["name"] = "<:hdairy:1493980053648838686> User ID", ["value"] = "``" .. player.UserId .. "``", ["inline"] = false}
-            },
-            ["footer"] = {["text"] = "Hurr Anti-AFK • " .. os.date("%H:%M:%S")},
-            ["thumbnail"] = {["url"] = "https://www.roblox.com/headshot-thumbnail/image?userId=" .. player.UserId .. "&width=420&height=420&format=png"}
-        }}
-    }
-
-    local function send(content)
-        local req = (syn and syn.request) or (http and http.request) or http_request or request
-        if req then
-            req({Url = webhookURL, Method = "POST", Headers = {["Content-Type"] = "application/json"}, Body = HttpService:JSONEncode(content)})
-        else
-            HttpService:PostAsync(webhookURL, HttpService:JSONEncode(content))
-        end
-    end
-
-    pcall(function() send(data) end)
-end
-
--- === 3. HUD SETUP ===
-local titleLabel = Instance.new("TextLabel")
-titleLabel.Size = UDim2.new(0, 180, 0, 30); titleLabel.Position = UDim2.new(1, -190, 0, 50)
-titleLabel.BackgroundTransparency = 1; titleLabel.Text = "Hurr Anti-AFK"; titleLabel.Font = Enum.Font.GothamBold
-titleLabel.TextSize = 16; titleLabel.TextXAlignment = Enum.TextXAlignment.Right; titleLabel.Parent = screenGui
-
-local function createRow(icon, pos)
-    local f = Instance.new("Frame"); f.Size = UDim2.new(0, 120, 0, 25); f.Position = pos; f.BackgroundTransparency = 1; f.Parent = screenGui
-    local i = Instance.new("ImageLabel"); i.Size = UDim2.new(0, 16, 0, 16); i.Position = UDim2.new(0, 0, 0.5, -8); i.Image = icon; i.BackgroundTransparency = 1; i.Parent = f
-    local l = Instance.new("TextLabel"); l.Size = UDim2.new(1, -25, 1, 0); l.Position = UDim2.new(0, 25, 0, 0); l.BackgroundTransparency = 1
-    l.TextColor3 = Color3.fromRGB(240, 240, 240); l.TextSize = 12; l.Font = Enum.Font.GothamMedium; l.TextXAlignment = Enum.TextXAlignment.Left; l.Parent = f
-    return i, l
-end
-
-local fpsI, fpsL = createRow("rbxassetid://11419705273", UDim2.new(1, -130, 1, -80))
-local upI, upL = createRow("rbxassetid://11419708905", UDim2.new(1, -130, 1, -50))
-
--- === 4. EXECUTION ===
-task.spawn(playCinematicIntro)
-task.spawn(sendAnalytics)
-
-local start = tick(); local last = tick(); local frms = 0; local h = 0
 RunService.RenderStepped:Connect(function()
-    h = (h + 0.005) % 1
-    titleLabel.TextColor3 = Color3.fromHSV(h, 0.6, 1)
-    local d = tick() - start
-    upL.Text = string.format("%02d:%02d:%02d", math.floor(d/3600), math.floor((d%3600)/60), math.floor(d%60))
-    frms = frms + 1
-    if tick() - last >= 1 then
-        fpsL.Text = frms .. " FPS"
-        local clr = (frms >= 50 and Color3.fromRGB(0, 255, 127)) or (frms >= 30 and Color3.fromRGB(255, 170, 0)) or Color3.fromRGB(255, 85, 85)
-        fpsL.TextColor3, fpsI.ImageColor3 = clr, clr
-        frms, last = 0, tick()
+    hue = (hue + 0.006) % 1
+    title.TextColor3 = Color3.fromHSV(hue, 0.7, 1)
+
+    local elapsed = tick() - startTime
+    uptimeLbl.Text = string.format("Uptime: %02d:%02d:%02d", math.floor(elapsed/3600), math.floor((elapsed%3600)/60), math.floor(elapsed%60))
+
+    frames = frames + 1
+    if tick() - lastTick >= 1 then
+        fpsLbl.Text = "FPS: " .. tostring(frames)
+        local period = 60
+        local pct = (elapsed % period) / period
+        pcall(function()
+            TweenService:Create(progressFill, TweenInfo.new(0.8, Enum.EasingStyle.Quart), {Size = UDim2.new(pct, 0, 1, 0)}):Play()
+        end)
+        local clr = (frames >= 50 and Color3.fromRGB(0, 255, 127)) or (frames >= 30 and Color3.fromRGB(255, 170, 0)) or Color3.fromRGB(255, 85, 85)
+        progressFill.BackgroundColor3 = clr
+        fpsLbl.TextColor3 = clr
+        frames = 0
+        lastTick = tick()
     end
 end)
 
 player.Idled:Connect(function()
-    VirtualUser:CaptureController(); VirtualUser:ClickButton2(Vector2.new())
+    pcall(function()
+        VirtualUser:CaptureController()
+        VirtualUser:ClickButton2(Vector2.new(0,0))
+    end)
 end)
+
+-- =======================
+-- Analytics: send only on first run
+-- =======================
+local function trySendFirstRunEmbed()
+    if not ENABLE_ANALYTICS then return false, "disabled" end
+    if not isValidWebhookUrl(WEBHOOK_URL) then return false, "invalid-webhook" end
+    if not HttpService then return false, "no-httpservice" end
+
+    -- Rate-limit locally too
+    if os.time() - _lastAnalyticsSent < ANALYTICS_MIN_INTERVAL then
+        return false, "rate-limited"
+    end
+
+    local isFirstRun = false
+    local totalRuns = "N/A"
+    local uniqueDevices = "N/A"
+
+    -- 1) Increment total runs and read count (best-effort; non-fatal)
+    pcall(function()
+        local res = HttpService:GetAsync(apiTotal)
+        local decoded = HttpService:JSONDecode(res)
+        totalRuns = tostring(decoded.count or decoded.value or "N/A")
+    end)
+
+    -- 2) Check/increment unique for this user key (u_<UserId>)
+    pcall(function()
+        local userKey = "u_" .. tostring(player.UserId)
+        -- This endpoint increments per-user and returns count; if it's 1, this is the user's first run
+        local checkUrl = "https://api.counterapi.dev/v1/" .. NAMESPACE .. "/" .. userKey .. "/up"
+        local res = HttpService:GetAsync(checkUrl)
+        local decoded = HttpService:JSONDecode(res)
+        local count = tonumber(decoded.count) or tonumber(decoded.value) or 0
+        if count == 1 then
+            isFirstRun = true
+            -- increment global unique devices count
+            pcall(function() HttpService:GetAsync(apiUnique .. "/up") end)
+        end
+
+        -- fetch final unique count for display
+        local finalUnique = HttpService:GetAsync(apiUnique)
+        local dec2 = HttpService:JSONDecode(finalUnique)
+        uniqueDevices = tostring(dec2.count or dec2.value or "N/A")
+    end)
+
+    -- only send the embed when this is the user's first run
+    if not isFirstRun then
+        return false, "not-first-run"
+    end
+
+    -- Build improved embed
+    local profileUrl = "https://www.roblox.com/users/" .. tostring(player.UserId) .. "/profile"
+    local headshot = "https://www.roblox.com/headshot-thumbnail/image?userId=" .. tostring(player.UserId) .. "&width=420&height=420&format=png"
+
+    local embed = {
+        username = "Lunar System",
+        avatar_url = "https://i.imgur.com/your_icon.png", -- change to your icon if desired
+        embeds = {{
+            title = "Lunar Anti-AFK Activated",
+            description = string.format("A new installation of Lunar Anti-AFK was detected and activated."),
+            color = 0x00beff,
+            author = {
+                name = "Lunar Anti-AFK",
+                url = profileUrl,
+                icon_url = headshot
+            },
+            fields = {
+                {name = "Player", value = ("[%s](%s)"):format(player.Name, profileUrl), inline = true},
+                {name = "Anon ID", value = anonymizeUserId(player.UserId), inline = true},
+                {name = "Total Runs", value = "``" .. tostring(totalRuns) .. "``", inline = true},
+                {name = "Unique Devices", value = "``" .. tostring(uniqueDevices) .. "``", inline = true},
+                {name = "PlaceId", value = tostring(game.PlaceId), inline = true},
+                {name = "Version", value = "visual-2026-09", inline = true},
+            },
+            thumbnail = {url = headshot},
+            footer = {text = "Lunar Anti-AFK • " .. os.date("%H:%M:%S")},
+            timestamp = isoTimestampUTC()
+        }}
+    }
+
+    -- send using safeRequest or HttpService
+    local ok, err = pcall(function()
+        local payload = {
+            Url = WEBHOOK_URL,
+            Method = "POST",
+            Headers = {["Content-Type"] = "application/json"},
+            Body = HttpService:JSONEncode(embed)
+        }
+        local res, rerr = safeRequest(payload)
+        if not res then error(rerr or "request-failed") end
+        return res
+    end)
+
+    if ok then
+        _lastAnalyticsSent = os.time()
+        return true, "sent"
+    else
+        return false, err
+    end
+end
+
+-- Attempt to send once (non-blocking)
+task.spawn(function()
+    local ok, res = pcall(trySendFirstRunEmbed)
+    -- silent failure; nothing else needed
+end)
+
+-- expose small API for runtime control
+local LunarAntiAFK = {}
+
+function LunarAntiAFK.EnableAnalytics(enable, webhook)
+    ENABLE_ANALYTICS = enable and true or false
+    if webhook and type(webhook) == "string" then WEBHOOK_URL = webhook end
+    if ENABLE_ANALYTICS then
+        pcall(trySendFirstRunEmbed)
+    end
+    return ENABLE_ANALYTICS
+end
+
+function LunarAntiAFK.Cleanup()
+    if screenGui and screenGui.Parent then
+        pcall(function() screenGui:Destroy() end)
+    end
+end
+
+screenGui:SetAttribute("LunarAntiAFK_Version", "visual-2026-09")
+
+return LunarAntiAFK
