@@ -16,8 +16,8 @@ local player = Players.LocalPlayer
 -- =======================
 -- CONFIG
 -- =======================
-local GUI_NAME = "LunarAntiAFK_Master"
-local NAMESPACE = "lunar_final_2026"
+local GUI_NAME = "Lunar Anti-AFK"
+local NAMESPACE = "lunar"
 
 -- If you want the webhook to send on first run, set ENABLE_ANALYTICS = true and provide a webhook below.
 local ENABLE_ANALYTICS = true
