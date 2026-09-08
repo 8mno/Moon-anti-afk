@@ -9,7 +9,6 @@ local VirtualUser = game:GetService("VirtualUser")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 local CoreGui = game:GetService("CoreGui")
-local Lighting = game:GetService("Lighting")
 
 local player = Players.LocalPlayer
 
@@ -31,11 +30,11 @@ local apiUnique = "https://api.counterapi.dev/v1/" .. NAMESPACE .. "/unique_devi
 local ANALYTICS_MIN_INTERVAL = 60
 local _lastAnalyticsSent = 0
 
--- Theme
+-- Theme (updated to neon accent + minimal text)
 local theme = {
-    accent = Color3.fromRGB(0, 190, 255),
-    bg = Color3.fromRGB(20, 20, 25),
-    text = Color3.fromRGB(240, 240, 240),
+    accent = Color3.fromRGB(126, 87, 255), -- neon purple
+    accent2 = Color3.fromRGB(0, 190, 255), -- cyan accent for subtle gradient
+    text = Color3.fromRGB(245, 245, 250),
 }
 
 -- =======================
@@ -95,15 +94,13 @@ local function anonymizeUserId(id)
 end
 
 local function isoTimestampUTC()
-    -- Return ISO8601 UTC timestamp for Discord embed
-    -- os.date("!%Y-%m-%dT%H:%M:%SZ") returns UTC in some environments; fallback to approximate
     local ok, t = pcall(function() return os.date("!%Y-%m-%dT%H:%M:%SZ") end)
     if ok and type(t) == "string" then return t end
     return os.date("%Y-%m-%dT%H:%M:%SZ")
 end
 
 -- =======================
--- GUI Setup (visuals kept from previous polished version)
+-- GUI Setup (revamped: smaller, no background, opening splash/animation)
 -- =======================
 local function getTargetParent()
     if RunService:IsStudio() then
@@ -132,84 +129,134 @@ local function makeClickThrough(obj)
 end
 makeClickThrough(screenGui)
 
--- (Mini HUD creation - kept compact)
+-- Small, elegant HUD: transparent background, neon outline + logo
 local hud = Instance.new("Frame")
 hud.Name = "LunarHUD"
-hud.Size = UDim2.new(0, 220, 0, 100)
-hud.Position = UDim2.new(1, -230, 0, 50)
-hud.BackgroundColor3 = theme.bg
-hud.BackgroundTransparency = 0.12
+hud.Size = UDim2.new(0, 160, 0, 48)
+hud.Position = UDim2.new(1, -180, 0, 36)
+hud.BackgroundTransparency = 1 -- no opaque background
 hud.Parent = screenGui
-local hudCorner = Instance.new("UICorner"); hudCorner.CornerRadius = UDim.new(0, 10); hudCorner.Parent = hud
-local hudStroke = Instance.new("UIStroke"); hudStroke.Thickness = 1; hudStroke.Color = theme.accent; hudStroke.Parent = hud
 
+-- Glow / outline using UIStroke
+local hudStroke = Instance.new("UIStroke")
+hudStroke.Thickness = 2
+hudStroke.Color = theme.accent
+hudStroke.Transparency = 0.5
+hudStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+hudStroke.Parent = hud
+
+-- Circular logo
+local logo = Instance.new("Frame")
+logo.Name = "Logo"
+logo.Size = UDim2.new(0, 44, 0, 44)
+logo.Position = UDim2.new(0, 6, 0.5, -22)
+logo.BackgroundTransparency = 0
+logo.BackgroundColor3 = theme.accent
+logo.Parent = hud
+local logoCorner = Instance.new("UICorner")
+logoCorner.CornerRadius = UDim.new(1, 0)
+logoCorner.Parent = logo
+
+-- subtle radial gradient for logo (UIGradient simulates it)
+local grad = Instance.new("UIGradient")
+grad.Color = ColorSequence.new({ColorSequenceKeypoint.new(0, theme.accent), ColorSequenceKeypoint.new(1, theme.accent2)})
+grad.Rotation = 45
+grad.Parent = logo
+
+local logoInner = Instance.new("ImageLabel")
+logoInner.Name = "LogoInner"
+logoInner.BackgroundTransparency = 1
+logoInner.Size = UDim2.new(0.6, 0, 0.6, 0)
+logoInner.Position = UDim2.new(0.2, 0, 0.2, 0)
+logoInner.Image = "" -- optional: set a small icon image URL or asset
+logoInner.Parent = logo
+
+-- Title / small label (no big bg)
 local title = Instance.new("TextLabel")
-title.Size = UDim2.new(0.95, 0, 0, 34)
-title.Position = UDim2.new(0.03, 0, 0, 0)
+title.Name = "Title"
+title.Size = UDim2.new(0, 90, 0, 44)
+title.Position = UDim2.new(0, 56, 0, 0)
 title.BackgroundTransparency = 1
-title.Text = "Lunar Anti-AFK"
+title.Text = "Lunar"
 title.Font = Enum.Font.GothamBold
-title.TextSize = 14
+title.TextSize = 18
 title.TextColor3 = theme.text
+title.TextTransparency = 0
 title.TextXAlignment = Enum.TextXAlignment.Left
 title.Parent = hud
 
-local status = Instance.new("TextLabel")
-status.Size = UDim2.new(1, -8, 0, 18)
-status.Position = UDim2.new(0, 4, 0, 36)
-status.BackgroundTransparency = 1
-status.Text = "Status: Active"
-status.Font = Enum.Font.Gotham
-status.TextSize = 12
-status.TextColor3 = Color3.fromRGB(200, 200, 200)
-status.TextXAlignment = Enum.TextXAlignment.Left
-status.Parent = hud
+-- small subtitle
+local sub = Instance.new("TextLabel")
+sub.Name = "Sub"
+sub.Size = UDim2.new(0, 90, 0, 16)
+sub.Position = UDim2.new(0, 56, 0, 26)
+sub.BackgroundTransparency = 1
+sub.Text = "Anti-AFK"
+sub.Font = Enum.Font.Gotham
+sub.TextSize = 11
+sub.TextColor3 = Color3.fromRGB(200,200,210)
+sub.TextTransparency = 0
+sub.TextXAlignment = Enum.TextXAlignment.Left
+sub.Parent = hud
 
-local rightCol = Instance.new("Frame")
-rightCol.Size = UDim2.new(1, -8, 0, 34)
-rightCol.Position = UDim2.new(0, 4, 0, 56)
-rightCol.BackgroundTransparency = 1
-rightCol.Parent = hud
+-- tiny FPS / status dot (right side)
+local statusDot = Instance.new("Frame")
+statusDot.Name = "StatusDot"
+statusDot.Size = UDim2.new(0, 10, 0, 10)
+statusDot.Position = UDim2.new(1, -18, 0.5, -5)
+statusDot.BackgroundColor3 = theme.accent2
+statusDot.BackgroundTransparency = 0
+local dotCorner = Instance.new("UICorner")
+dotCorner.CornerRadius = UDim.new(1, 0)
+dotCorner.Parent = statusDot
+statusDot.Parent = hud
 
-local fpsLbl = Instance.new("TextLabel")
-fpsLbl.Size = UDim2.new(0.5, -4, 1, 0)
-fpsLbl.Position = UDim2.new(0, 0, 0, 0)
-fpsLbl.BackgroundTransparency = 1
-fpsLbl.Text = "FPS: --"
-fpsLbl.Font = Enum.Font.GothamSemibold
-fpsLbl.TextSize = 13
-fpsLbl.TextColor3 = theme.text
-fpsLbl.TextXAlignment = Enum.TextXAlignment.Left
-fpsLbl.Parent = rightCol
-
-local uptimeLbl = Instance.new("TextLabel")
-uptimeLbl.Size = UDim2.new(0.5, -4, 1, 0)
-uptimeLbl.Position = UDim2.new(0.5, 4, 0, 0)
-uptimeLbl.BackgroundTransparency = 1
-uptimeLbl.Text = "Uptime: 00:00:00"
-uptimeLbl.Font = Enum.Font.GothamSemibold
-uptimeLbl.TextSize = 13
-uptimeLbl.TextColor3 = theme.text
-uptimeLbl.TextXAlignment = Enum.TextXAlignment.Right
-uptimeLbl.Parent = rightCol
-
-local progressBg = Instance.new("Frame")
-progressBg.Size = UDim2.new(1, -12, 0, 6)
-progressBg.Position = UDim2.new(0, 6, 1, -14)
-progressBg.BackgroundColor3 = Color3.fromRGB(40, 40, 45)
-progressBg.Parent = hud
-local progressCorner = Instance.new("UICorner"); progressCorner.CornerRadius = UDim.new(0, 4); progressCorner.Parent = progressBg
-
-local progressFill = Instance.new("Frame")
-progressFill.Size = UDim2.new(0.0, 0, 1, 0)
-progressFill.BackgroundColor3 = theme.accent
-progressFill.Parent = progressBg
-local progressFillCorner = Instance.new("UICorner"); progressFillCorner.CornerRadius = UDim.new(0, 4); progressFillCorner.Parent = progressFill
-
+-- make elements click-through
 makeClickThrough(hud)
 
+-- Opening splash: a short animated label that scales down into the HUD
+local function playOpeningSplash()
+    local splash = Instance.new("TextLabel")
+    splash.Name = "LunarSplash"
+    splash.AnchorPoint = Vector2.new(0.5, 0.5)
+    splash.Size = UDim2.new(0, 280, 0, 84)
+    local screenX = math.clamp(hud.AbsolutePosition.X + hud.AbsoluteSize.X/2, 140, (screenGui.AbsoluteSize and screenGui.AbsoluteSize.X) or 1000)
+    local screenY = math.clamp(hud.AbsolutePosition.Y + hud.AbsoluteSize.Y/2, 84, (screenGui.AbsoluteSize and screenGui.AbsoluteSize.Y) or 600)
+    splash.Position = UDim2.new(0, screenX, 0, screenY)
+    splash.BackgroundTransparency = 1
+    splash.Text = "LUNAR"
+    splash.Font = Enum.Font.BebasNeue or Enum.Font.GothamSemibold
+    splash.TextSize = 48
+    splash.TextColor3 = theme.accent
+    splash.TextStrokeTransparency = 0.8
+    splash.TextTransparency = 1
+    splash.Parent = screenGui
+
+    -- animate: fade in & pop, then shrink & fade out
+    pcall(function()
+        local tweenIn = TweenService:Create(splash, TweenInfo.new(0.45, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {TextTransparency = 0})
+        local scaleUp = TweenService:Create(splash, TweenInfo.new(0.45, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Size = UDim2.new(0, 320, 0, 96)})
+        tweenIn:Play(); scaleUp:Play()
+        tweenIn.Completed:Wait()
+
+        wait(0.85)
+
+        local tweenOut = TweenService:Create(splash, TweenInfo.new(0.5, Enum.EasingStyle.Quart, Enum.EasingDirection.In), {TextTransparency = 1, Size = UDim2.new(0, 120, 0, 36), Position = UDim2.new(0, hud.AbsolutePosition.X + 56, 0, hud.AbsolutePosition.Y + 6)})
+        tweenOut:Play()
+        tweenOut.Completed:Wait()
+    end)
+    pcall(function() splash:Destroy() end)
+end
+
+-- Play the splash asynchronously after layout is ready
+task.spawn(function()
+    -- wait a short moment so AbsolutePosition/Size populate
+    wait(0.12)
+    pcall(playOpeningSplash)
+end)
+
 -- =======================
--- AFK prevention + render loop
+-- AFK prevention + render loop (updated to work with compact HUD)
 -- =======================
 local startTime = tick()
 local lastTick = tick()
@@ -218,22 +265,21 @@ local hue = 0
 
 RunService.RenderStepped:Connect(function()
     hue = (hue + 0.006) % 1
-    title.TextColor3 = Color3.fromHSV(hue, 0.7, 1)
+    -- gentle animated accent tint for logo and outline
+    local accent = Color3.fromHSV(hue, 0.7, 1)
+    pcall(function()
+        logo.BackgroundColor3 = accent
+        hudStroke.Color = accent
+        statusDot.BackgroundColor3 = (frames >= 50 and Color3.fromRGB(0,255,127)) or (frames >= 30 and Color3.fromRGB(255,170,0)) or Color3.fromRGB(255,85,85)
+    end)
 
     local elapsed = tick() - startTime
-    uptimeLbl.Text = string.format("Uptime: %02d:%02d:%02d", math.floor(elapsed/3600), math.floor((elapsed%3600)/60), math.floor(elapsed%60))
+    -- update small uptime on hover tooltip? (kept off-screen minimal)
 
     frames = frames + 1
     if tick() - lastTick >= 1 then
-        fpsLbl.Text = "FPS: " .. tostring(frames)
-        local period = 60
-        local pct = (elapsed % period) / period
-        pcall(function()
-            TweenService:Create(progressFill, TweenInfo.new(0.8, Enum.EasingStyle.Quart), {Size = UDim2.new(pct, 0, 1, 0)}):Play()
-        end)
-        local clr = (frames >= 50 and Color3.fromRGB(0, 255, 127)) or (frames >= 30 and Color3.fromRGB(255, 170, 0)) or Color3.fromRGB(255, 85, 85)
-        progressFill.BackgroundColor3 = clr
-        fpsLbl.TextColor3 = clr
+        -- pulse the dot color based on FPS
+        local fpsNow = frames
         frames = 0
         lastTick = tick()
     end
@@ -247,14 +293,13 @@ player.Idled:Connect(function()
 end)
 
 -- =======================
--- Analytics: send only on first run
+-- Analytics: send only on first run (unchanged)
 -- =======================
 local function trySendFirstRunEmbed()
     if not ENABLE_ANALYTICS then return false, "disabled" end
     if not isValidWebhookUrl(WEBHOOK_URL) then return false, "invalid-webhook" end
     if not HttpService then return false, "no-httpservice" end
 
-    -- Rate-limit locally too
     if os.time() - _lastAnalyticsSent < ANALYTICS_MIN_INTERVAL then
         return false, "rate-limited"
     end
@@ -263,45 +308,38 @@ local function trySendFirstRunEmbed()
     local totalRuns = "N/A"
     local uniqueDevices = "N/A"
 
-    -- 1) Increment total runs and read count (best-effort; non-fatal)
     pcall(function()
         local res = HttpService:GetAsync(apiTotal)
         local decoded = HttpService:JSONDecode(res)
         totalRuns = tostring(decoded.count or decoded.value or "N/A")
     end)
 
-    -- 2) Check/increment unique for this user key (u_<UserId>)
     pcall(function()
         local userKey = "u_" .. tostring(player.UserId)
-        -- This endpoint increments per-user and returns count; if it's 1, this is the user's first run
         local checkUrl = "https://api.counterapi.dev/v1/" .. NAMESPACE .. "/" .. userKey .. "/up"
         local res = HttpService:GetAsync(checkUrl)
         local decoded = HttpService:JSONDecode(res)
         local count = tonumber(decoded.count) or tonumber(decoded.value) or 0
         if count == 1 then
             isFirstRun = true
-            -- increment global unique devices count
             pcall(function() HttpService:GetAsync(apiUnique .. "/up") end)
         end
 
-        -- fetch final unique count for display
         local finalUnique = HttpService:GetAsync(apiUnique)
         local dec2 = HttpService:JSONDecode(finalUnique)
         uniqueDevices = tostring(dec2.count or dec2.value or "N/A")
     end)
 
-    -- only send the embed when this is the user's first run
     if not isFirstRun then
         return false, "not-first-run"
     end
 
-    -- Build improved embed
     local profileUrl = "https://www.roblox.com/users/" .. tostring(player.UserId) .. "/profile"
     local headshot = "https://www.roblox.com/headshot-thumbnail/image?userId=" .. tostring(player.UserId) .. "&width=420&height=420&format=png"
 
     local embed = {
         username = "Lunar System",
-        avatar_url = "https://i.imgur.com/your_icon.png", -- change to your icon if desired
+        avatar_url = "https://i.imgur.com/your_icon.png",
         embeds = {{
             title = "Lunar Anti-AFK Activated",
             description = string.format("A new installation of Lunar Anti-AFK was detected and activated."),
@@ -325,7 +363,6 @@ local function trySendFirstRunEmbed()
         }}
     }
 
-    -- send using safeRequest or HttpService
     local ok, err = pcall(function()
         local payload = {
             Url = WEBHOOK_URL,
@@ -349,7 +386,6 @@ end
 -- Attempt to send once (non-blocking)
 task.spawn(function()
     local ok, res = pcall(trySendFirstRunEmbed)
-    -- silent failure; nothing else needed
 end)
 
 -- expose small API for runtime control
