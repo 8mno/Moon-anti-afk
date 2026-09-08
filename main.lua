@@ -218,6 +218,69 @@ statusDot.Parent = hud
 -- make elements click-through
 makeClickThrough(hud)
 
+-- Minimal optional: configurable display name + expandable stats panel (toggle RightControl)
+local UserInputService = game:GetService("UserInputService")
+
+-- Set this to "Hurr" if you want the Hurr-style label, or any name
+local DISPLAY_NAME = "Lunar" -- change to "Hurr" to use the Hurr-inspired name
+
+-- apply display name to compact title (keeps existing wording minimal)
+title.Text = DISPLAY_NAME
+
+-- Expanded stats panel (hidden by default, toggled with RightControl)
+local expandedPanel = Instance.new("Frame")
+expandedPanel.Name = "ExpandedStats"
+expandedPanel.Size = UDim2.new(0, 200, 0, 70)
+expandedPanel.Position = UDim2.new(1, -220, 0, 36)
+expandedPanel.BackgroundColor3 = Color3.fromRGB(18,18,22)
+expandedPanel.BackgroundTransparency = 0.08
+expandedPanel.Parent = screenGui
+local expCorner = Instance.new("UICorner"); expCorner.CornerRadius = UDim.new(0,8); expCorner.Parent = expandedPanel
+local expStroke = Instance.new("UIStroke"); expStroke.Color = theme.accent; expStroke.Thickness = 1; expStroke.Parent = expandedPanel
+
+local expTitle = Instance.new("TextLabel")
+expTitle.Size = UDim2.new(1, -12, 0, 18)
+expTitle.Position = UDim2.new(0, 6, 0, 6)
+expTitle.BackgroundTransparency = 1
+expTitle.Font = Enum.Font.GothamBold
+expTitle.TextSize = 14
+expTitle.TextColor3 = theme.text
+expTitle.TextXAlignment = Enum.TextXAlignment.Left
+expTitle.Text = DISPLAY_NAME .. " • Stats"
+expTitle.Parent = expandedPanel
+
+local expFps = Instance.new("TextLabel")
+expFps.Size = UDim2.new(1, -12, 0, 18)
+expFps.Position = UDim2.new(0, 6, 0, 28)
+expFps.BackgroundTransparency = 1
+expFps.Font = Enum.Font.Gotham
+expFps.TextSize = 13
+expFps.TextColor3 = Color3.fromRGB(200,200,210)
+expFps.TextXAlignment = Enum.TextXAlignment.Left
+expFps.Text = "FPS: --"
+expFps.Parent = expandedPanel
+
+local expUptime = Instance.new("TextLabel")
+expUptime.Size = UDim2.new(1, -12, 0, 18)
+expUptime.Position = UDim2.new(0, 6, 0, 46)
+expUptime.BackgroundTransparency = 1
+expUptime.Font = Enum.Font.Gotham
+expUptime.TextSize = 13
+expUptime.TextColor3 = Color3.fromRGB(200,200,210)
+expUptime.TextXAlignment = Enum.TextXAlignment.Left
+expUptime.Text = "Uptime: 00:00:00"
+expUptime.Parent = expandedPanel
+
+expandedPanel.Visible = false
+
+-- Toggle expanded panel with RightControl (works without changing the click-through behavior)
+UserInputService.InputBegan:Connect(function(input, processed)
+    if processed then return end
+    if input.UserInputType == Enum.UserInputType.Keyboard and input.KeyCode == Enum.KeyCode.RightControl then
+        expandedPanel.Visible = not expandedPanel.Visible
+    end
+end)
+
 -- Cinematic intro inspired by Hurr (keeps the feel, minimal changes)
 local function playCinematicIntro()
     if not ENABLE_CINEMATIC_INTRO then return end
@@ -344,7 +407,11 @@ RunService.RenderStepped:Connect(function()
 
     frames = frames + 1
     if tick() - lastTick >= 1 then
-        -- fps pulse handled here (we don't display it to keep HUD minimal)
+        local fpsNow = frames
+        if expandedPanel and expandedPanel.Visible then
+            expFps.Text = "FPS: " .. tostring(fpsNow)
+            expUptime.Text = string.format("Uptime: %02d:%02d:%02d", math.floor(elapsed/3600), math.floor((elapsed%3600)/60), math.floor(elapsed%60))
+        end
         frames = 0
         lastTick = tick()
     end
